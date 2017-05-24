@@ -11,10 +11,8 @@ pia_username=$(head -1 $PIA_PASSWD_FILE)
 pia_passwd=$(tail -1 $PIA_PASSWD_FILE)
 transmission_username=$(head -1 $TRANSMISSION_PASSWD_FILE)
 transmission_passwd=$(tail -1 $TRANSMISSION_PASSWD_FILE)
-local_vpn_ip=$1 # Passed as parameter from periodicUpdates.sh
 pia_client_id_file=/etc/transmission/pia_client_id
 transmission_settings_file=${TRANSMISSION_HOME}/settings.json
-port_assignment_url=https://www.privateinternetaccess.com/vpninfo/port_forward_assignment
 
 #
 # First get a port from PIA
@@ -31,10 +29,29 @@ if [ -z ${pia_client_id} ]; then
 fi
 
 # Get the port
-pia_response=$(curl -d "user=$pia_username&pass=$pia_passwd&client_id=$pia_client_id&local_ip=$local_vpn_ip" $port_assignment_url)
+port_assignment_url="http://209.222.18.222:2000/?client_id=$pia_client_id"
+pia_response=$(curl -s -f $port_assignment_url)
 
+# Check for curl error (curl will fail on HTTP errors with -f flag)
+ret=$?
+if [ $ret -ne 0 ]; then
+     echo "curl encountered an error looking up new port: $ret"
+fi
+
+# Check for errors in PIA response
+error=$(echo $pia_response | grep -oE "\"error\".*\"")
+if [ ! -z "$error" ]; then
+     echo "PIA returned an error: $error"
+     exit
+fi
+
+# Get new port, check if empty
 new_port=$(echo $pia_response | grep -oE "[0-9]+")
-echo "Got new port $new_port from pia"
+if [ -z "$new_port" ]; then
+    echo "Could not find new port from PIA"
+    exit
+fi
+echo "Got new port $new_port from PIA"
 
 #
 # Now, set port in Transmission
@@ -61,4 +78,3 @@ if [ "$new_port" != "$transmission_peer_port" ]
   else
     echo "No action needed, port hasn't changed"
 fi
-
